@@ -22,12 +22,13 @@ class Node:
         self.dofs = [3 * id - 3, 3 * id - 2, 3 * id - 1]
 
 class Member:
-    def __init__(self, id, node_i, node_j, E, A):
+    def __init__(self, id, node_i, node_j, E, A, r_min=0.01):
         self.id = id
         self.node_i = node_i
         self.node_j = node_j
         self.E = E
         self.A = A
+        self.r_min = r_min  # NEW: Minimum radius of gyration (meters)
         self.internal_force = 0.0
         
         # 1. 3D Kinematics (Length)
@@ -48,7 +49,6 @@ class Member:
         self.T_vector = np.array([-self.l, -self.m, -self.n, self.l, self.m, self.n])
         
         # 4. Element Stiffness Matrix in Global Coordinates (6x6)
-        # k = (EA/L) * [T^T * T]
         self.k_global_matrix = (self.E * self.A / self.L) * np.outer(self.T_vector, self.T_vector)
         
         # Map element DOFs to system DOFs
@@ -56,7 +56,7 @@ class Member:
         self.u_local = None
         
     def get_k_geometric(self, current_force):
-        """Calculates the 6x6 Geometric Stiffness Matrix (K_G) based on current axial force."""
+        """Calculates the 6x6 Geometric Stiffness Matrix (K_G)."""
         Z = np.array([
             [1 - self.l**2, -self.l*self.m, -self.l*self.n],
             [-self.l*self.m, 1 - self.m**2, -self.m*self.n],
@@ -72,12 +72,42 @@ class Member:
         KG[3:6, 0:3] = -KG_sub
         
         return KG
+        
     def calculate_force(self):
         """Calculates axial force. Positive = Tension, Negative = Compression."""
         if self.u_local is not None:
-            # F = (EA/L) * dot(T, u_local)
             self.internal_force = (self.E * self.A / self.L) * np.dot(self.T_vector, self.u_local)
         return self.internal_force
+
+    def get_is800_buckling_stress(self, fy=250e6):
+        """
+        NEW: Calculates allowable compressive design stress (fcd) per IS 800:2007.
+        Assumes Buckling Class 'c' (alpha = 0.49) for standard Angle Sections.
+        """
+        if self.r_min <= 0:
+            return fy / 1.1 # Fallback safety
+            
+        KL = 1.0 * self.L # Effective length (K=1.0 for pinned space truss)
+        slenderness = KL / self.r_min
+        
+        # Euler buckling stress
+        fcc = (np.pi**2 * self.E) / (slenderness**2)
+        
+        # Non-dimensional slenderness ratio
+        lambda_n = np.sqrt(fy / fcc)
+        
+        # Imperfection factor for Buckling Class C (Angles)
+        alpha = 0.49 
+        
+        phi = 0.5 * (1 + alpha * (lambda_n - 0.2) + lambda_n**2)
+        
+        # Calculate fcd
+        fcd = fy / (phi + np.sqrt(max(0, phi**2 - lambda_n**2)))
+        
+        # IS 800 Partial safety factor for material yielding (gamma_m0 = 1.1)
+        gamma_m0 = 1.1 
+        
+        return min(fcd, fy) / gamma_m0
 
 class TrussSystem:
     def __init__(self):
