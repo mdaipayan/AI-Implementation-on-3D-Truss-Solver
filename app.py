@@ -38,30 +38,76 @@ def clear_results():
     if 'optimized_sections' in st.session_state:
         del st.session_state['optimized_sections']
 
+# Initialize dynamic grouping text box state
+if 'group_input_val' not in st.session_state:
+    st.session_state['group_input_val'] = "1, 2, 3; 4, 5, 6"
+
 col1, col2 = st.columns([1, 2])
 
 with col1:
     st.header("1. Input Data")
     
-    st.info("💡 **First time here?** Load the benchmark 3D Space Truss to see how data is formatted.")
-    if st.button("📚 Load 3D Tetrahedron Benchmark"):
-        st.session_state['nodes_data'] = pd.DataFrame([
-            [0.0, 0.0, 0.0, 1, 1, 1],  
-            [3.0, 0.0, 0.0, 0, 1, 1],  
-            [1.5, 3.0, 0.0, 0, 0, 1],  
-            [1.5, 1.5, 4.0, 0, 0, 0]   
-        ], columns=["X", "Y", "Z", "Restrain_X", "Restrain_Y", "Restrain_Z"])
-        
-        st.session_state['members_data'] = pd.DataFrame([
-            [1, 2, 0.01, 2e11], [2, 3, 0.01, 2e11], [3, 1, 0.01, 2e11], 
-            [1, 4, 0.01, 2e11], [2, 4, 0.01, 2e11], [3, 4, 0.01, 2e11]   
-        ], columns=["Node_I", "Node_J", "Area(sq.m)", "E (N/sq.m)"])
-        
-        st.session_state['loads_data'] = pd.DataFrame([
-            [4, 0.0, 50000.0, -100000.0]  
-        ], columns=["Node_ID", "Force_X (N)", "Force_Y (N)", "Force_Z (N)"])
-        
-        clear_results()
+    st.info("💡 **Benchmark Library:** Load standard geometries to test the solver and AI.")
+    
+    col_btn1, col_btn2 = st.columns(2)
+    with col_btn1:
+        if st.button("📚 Load 3D Tetrahedron"):
+            st.session_state['nodes_data'] = pd.DataFrame([
+                [0.0, 0.0, 0.0, 1, 1, 1],  
+                [3.0, 0.0, 0.0, 0, 1, 1],  
+                [1.5, 3.0, 0.0, 0, 0, 1],  
+                [1.5, 1.5, 4.0, 0, 0, 0]   
+            ], columns=["X", "Y", "Z", "Restrain_X", "Restrain_Y", "Restrain_Z"])
+            
+            st.session_state['members_data'] = pd.DataFrame([
+                [1, 2, 0.01, 2e11], [2, 3, 0.01, 2e11], [3, 1, 0.01, 2e11], 
+                [1, 4, 0.01, 2e11], [2, 4, 0.01, 2e11], [3, 4, 0.01, 2e11]   
+            ], columns=["Node_I", "Node_J", "Area(sq.m)", "E (N/sq.m)"])
+            
+            st.session_state['loads_data'] = pd.DataFrame([
+                [4, 0.0, 50000.0, -100000.0]  
+            ], columns=["Node_ID", "Force_X (N)", "Force_Y (N)", "Force_Z (N)"])
+            
+            st.session_state['group_input_val'] = "1, 2, 3; 4, 5, 6"
+            clear_results()
+
+    with col_btn2:
+        if st.button("🗼 Load 25-Bar Tower"):
+            # The classic 25-Bar Spatial Truss Benchmark
+            st.session_state['nodes_data'] = pd.DataFrame([
+                [-1.0, 0.0, 5.0, 0, 0, 0],   # Node 1 (Top)
+                [1.0, 0.0, 5.0, 0, 0, 0],    # Node 2 (Top)
+                [-1.0, 1.0, 2.5, 0, 0, 0],   # Node 3 (Mid)
+                [1.0, 1.0, 2.5, 0, 0, 0],    # Node 4 (Mid)
+                [1.0, -1.0, 2.5, 0, 0, 0],   # Node 5 (Mid)
+                [-1.0, -1.0, 2.5, 0, 0, 0],  # Node 6 (Mid)
+                [-2.5, 2.5, 0.0, 1, 1, 1],   # Node 7 (Base - Pinned)
+                [2.5, 2.5, 0.0, 1, 1, 1],    # Node 8 (Base - Pinned)
+                [2.5, -2.5, 0.0, 1, 1, 1],   # Node 9 (Base - Pinned)
+                [-2.5, -2.5, 0.0, 1, 1, 1]   # Node 10 (Base - Pinned)
+            ], columns=["X", "Y", "Z", "Restrain_X", "Restrain_Y", "Restrain_Z"])
+            
+            st.session_state['members_data'] = pd.DataFrame([
+                [1, 2, 0.005, 2e11], # G1: 1
+                [1, 4, 0.005, 2e11], [2, 3, 0.005, 2e11], [1, 5, 0.005, 2e11], [2, 6, 0.005, 2e11], # G2: 2-5
+                [1, 3, 0.005, 2e11], [2, 4, 0.005, 2e11], [2, 5, 0.005, 2e11], [1, 6, 0.005, 2e11], # G3: 6-9
+                [3, 6, 0.005, 2e11], [4, 5, 0.005, 2e11], # G4: 10-11
+                [3, 4, 0.005, 2e11], [5, 6, 0.005, 2e11], # G5: 12-13
+                [3, 10, 0.005, 2e11], [6, 7, 0.005, 2e11], [4, 9, 0.005, 2e11], [5, 8, 0.005, 2e11], # G6: 14-17
+                [3, 8, 0.005, 2e11], [4, 7, 0.005, 2e11], [6, 9, 0.005, 2e11], [5, 10, 0.005, 2e11], # G7: 18-21
+                [3, 7, 0.005, 2e11], [4, 8, 0.005, 2e11], [5, 9, 0.005, 2e11], [6, 10, 0.005, 2e11]  # G8: 22-25
+            ], columns=["Node_I", "Node_J", "Area(sq.m)", "E (N/sq.m)"])
+            
+            st.session_state['loads_data'] = pd.DataFrame([
+                [1, 10000.0, 50000.0, -50000.0], # Complex 3D asymmetric loading
+                [2, 0.0, 50000.0, -50000.0],
+                [3, 10000.0, 0.0, 0.0],
+                [6, 10000.0, 0.0, 0.0]
+            ], columns=["Node_ID", "Force_X (N)", "Force_Y (N)", "Force_Z (N)"])
+            
+            # The exact 8 symmetry groups used in academic literature for the 25-bar truss
+            st.session_state['group_input_val'] = "1; 2, 3, 4, 5; 6, 7, 8, 9; 10, 11; 12, 13; 14, 15, 16, 17; 18, 19, 20, 21; 22, 23, 24, 25"
+            clear_results()
 
     if 'nodes_data' not in st.session_state:
         st.session_state['nodes_data'] = pd.DataFrame(columns=["X", "Y", "Z", "Restrain_X", "Restrain_Y", "Restrain_Z"])
@@ -177,7 +223,9 @@ with col1:
         
     st.markdown("**Symmetry & Constructability (Member Grouping)**")
     st.caption("Enter comma-separated Member IDs to group them into identical sections. Separate groups with a semicolon (;).")
-    grouping_input = st.text_input("Member Groups", value="1, 2, 3; 4, 5, 6")
+    
+    # Text input mapped to session state
+    grouping_input = st.text_input("Member Groups", key="group_input_val")
         
     if st.button("🚀 Run Discrete AI Optimization"):
         if 'solved_truss' not in st.session_state:
@@ -206,7 +254,7 @@ with col1:
                             max_deflection=max_deflection_mm / 1000.0 
                         )
                         
-                        final_sections, final_weight, is_valid = optimizer.optimize()
+                        final_sections, final_weight, is_valid = optimizer.optimize(pop_size=20, max_gen=150) # Increased generations for complex tower
                         
                         if is_valid:
                             st.success("🎉 Discrete Optimization Converged Successfully!")
