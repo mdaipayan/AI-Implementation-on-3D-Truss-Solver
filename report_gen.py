@@ -1,98 +1,151 @@
 import os
+import subprocess
 import tempfile
 import datetime
-from docx import Document
-from docx.shared import Inches, Pt
-from docx.enum.text import WD_ALIGN_PARAGRAPH
+import pandas as pd
 
-def generate_report(ts_solved, fig_base=None, fig_res=None, scale_factor=1000.0, unit_label="kN"):
-    """Generates a professional Word document report for the 3D Truss Analysis."""
-    doc = Document()
+def generate_pdf_report(ts_solved, opt_data=None, fig_base=None, fig_res=None, scale_factor=1000.0, unit_label="kN"):
+    """
+    Generates a professional PDF report via pdflatex.
+    opt_data: dictionary containing 'sections', 'orig_weight', 'final_weight'
+    """
+    temp_dir = tempfile.mkdtemp()
+    tex_path = os.path.join(temp_dir, "report.tex")
+    pdf_path = os.path.join(temp_dir, "report.pdf")
     
-    # --- Header Section ---
-    title = doc.add_heading('Professional Space Truss Analysis Report', 0)
-    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    # 1. Export Plotly Figures to PNG using Kaleido
+    base_img_path = os.path.join(temp_dir, "geometry.png")
+    res_img_path = os.path.join(temp_dir, "results.png")
     
-    subtitle = doc.add_paragraph()
-    subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = subtitle.add_run('Developed by: Mr. D Mandal, Assistant Professor, KITS Ramtek\n')
-    run.bold = True
-    subtitle.add_run(f'Date Generated: {datetime.date.today().strftime("%B %d, %Y")}')
-
-    doc.add_heading('1. 3D Structural Visualization', level=1)
-    
-    # --- Attempt to embed the 3D Plotly Result Figure ---
+    if fig_base:
+        fig_base.write_image(base_img_path, engine="kaleido", width=1000, height=700, scale=2)
     if fig_res:
-        try:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
-                # Kaleido is required to convert the interactive Plotly fig to a static PNG
-                fig_res.write_image(tmp.name, engine="kaleido", width=800, height=600, scale=2)
-                doc.add_picture(tmp.name, width=Inches(6.0))
-            os.remove(tmp.name)
-            last_p = doc.paragraphs[-1]
-            last_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        except Exception as e:
-            doc.add_paragraph(f"[Image rendering skipped: Please ensure 'kaleido' is installed. Error: {e}]")
+        fig_res.write_image(res_img_path, engine="kaleido", width=1000, height=700, scale=2)
 
-    # --- Nodal Displacements Table ---
-    doc.add_heading('2. Nodal Displacements', level=1)
-    t_disp = doc.add_table(rows=1, cols=4)
-    t_disp.style = 'Table Grid'
-    hdr_cells = t_disp.rows[0].cells
-    hdr_cells[0].text = 'Node ID'
-    hdr_cells[1].text = 'ΔX (m)'
-    hdr_cells[2].text = 'ΔY (m)'
-    hdr_cells[3].text = 'ΔZ (m)'
-    
+    # 2. Begin LaTeX Document Construction
+    tex = r"""\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{geometry}
+\geometry{margin=1in}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{xcolor}
+\usepackage{float}
+\usepackage{hyperref}
+
+\title{\textbf{Professional 3D Space Truss Analysis \\ \& AI Optimization Report}}
+\author{\textbf{Mr. D Mandal} \\ \textit{Assistant Professor, Department of Civil Engineering} \\ \textit{KITS Ramtek}}
+\date{""" + datetime.date.today().strftime("%B %d, %Y") + r"""}
+
+\begin{document}
+\maketitle
+
+\section{Structural Visualization}
+"""
+    # Insert Geometry Image
+    if fig_base:
+        tex += r"""
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{geometry.png}
+    \caption{Undeformed 3D Truss Geometry}
+\end{figure}
+"""
+    # Insert Results Image
+    if fig_res:
+        tex += r"""
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{results.png}
+    \caption{Structural Forces and Reactions Diagram}
+\end{figure}
+"""
+
+    # 3. Static Results Section
+    tex += r"""
+\section{Linear Static Analysis Results}
+\subsection{Nodal Displacements}
+\begin{longtable}{cccc}
+\toprule
+\textbf{Node ID} & \textbf{Ux (m)} & \textbf{Uy (m)} & \textbf{Uz (m)} \\
+\midrule
+\endhead
+"""
     for node in ts_solved.nodes:
-        row_cells = t_disp.add_row().cells
-        row_cells[0].text = str(node.id)
-        row_cells[1].text = f"{ts_solved.U_global[node.dofs[0]]:.6e}"
-        row_cells[2].text = f"{ts_solved.U_global[node.dofs[1]]:.6e}"
-        row_cells[3].text = f"{ts_solved.U_global[node.dofs[2]]:.6e}"
-
-    # --- Support Reactions Table ---
-    doc.add_heading('3. Support Reactions', level=1)
-    t_reac = doc.add_table(rows=1, cols=4)
-    t_reac.style = 'Table Grid'
-    hdr_cells = t_reac.rows[0].cells
-    hdr_cells[0].text = 'Node ID'
-    hdr_cells[1].text = f'Rx ({unit_label})'
-    hdr_cells[2].text = f'Ry ({unit_label})'
-    hdr_cells[3].text = f'Rz ({unit_label})'
+        ux = ts_solved.U_global[node.dofs[0]] if ts_solved.U_global is not None else 0
+        uy = ts_solved.U_global[node.dofs[1]] if ts_solved.U_global is not None else 0
+        uz = ts_solved.U_global[node.dofs[2]] if ts_solved.U_global is not None else 0
+        tex += f"{node.id} & {ux:.6e} & {uy:.6e} & {uz:.6e} \\\\\n"
     
-    for node in ts_solved.nodes:
-        if node.rx or node.ry or node.rz:
-            row_cells = t_reac.add_row().cells
-            row_cells[0].text = str(node.id)
-            row_cells[1].text = f"{(node.rx_val / scale_factor):.2f}" if node.rx else "0.00"
-            row_cells[2].text = f"{(node.ry_val / scale_factor):.2f}" if node.ry else "0.00"
-            row_cells[3].text = f"{(node.rz_val / scale_factor):.2f}" if node.rz else "0.00"
+    tex += r"""\bottomrule
+\end{longtable}
 
-    # --- Member Forces Table ---
-    doc.add_heading('4. Internal Axial Forces', level=1)
-    t_force = doc.add_table(rows=1, cols=4)
-    t_force.style = 'Table Grid'
-    hdr_cells = t_force.rows[0].cells
-    hdr_cells[0].text = 'Member ID'
-    hdr_cells[1].text = 'Connectivity'
-    hdr_cells[2].text = f'Axial Force ({unit_label})'
-    hdr_cells[3].text = 'Nature'
+\subsection{Internal Axial Forces}
+\begin{longtable}{cccc}
+\toprule
+\textbf{Member} & \textbf{Nodes} & \textbf{Axial Force (""" + unit_label + r""")} & \textbf{Nature} \\
+\midrule
+\endhead
+"""
+    for m in ts_solved.members:
+        force = m.internal_force / scale_factor
+        nature = "Tension" if force > 1e-6 else ("Compression" if force < -1e-6 else "Zero Force")
+        color = r"\textcolor{blue}" if force > 1e-6 else (r"\textcolor{red}" if force < -1e-6 else r"\textcolor{gray}")
+        tex += f"M{m.id} & {m.node_i.id} - {m.node_j.id} & {color}{{{abs(force):.2f}}} & {color}{{{nature}}} \\\\\n"
     
-    for mbr in ts_solved.members:
-        row_cells = t_force.add_row().cells
-        row_cells[0].text = f"M{mbr.id}"
-        row_cells[1].text = f"Node {mbr.node_i.id} ↔ Node {mbr.node_j.id}"
-        
-        f_scaled = mbr.internal_force / scale_factor
-        row_cells[2].text = f"{abs(f_scaled):.2f}"
-        
-        if abs(f_scaled) < 0.01:
-            nature = "Zero-Force"
-        else:
-            nature = "Compression" if mbr.internal_force < 0 else "Tension"
-        row_cells[3].text = nature
+    tex += r"""\bottomrule
+\end{longtable}
+"""
 
-    filepath = "Professional_Truss_Report.docx"
-    doc.save(filepath)
-    return filepath
+    # 4. AI Optimization Section (If Data Exists)
+    if opt_data and 'sections' in opt_data:
+        orig_wt = opt_data.get('orig_weight', 0)
+        final_wt = opt_data.get('final_weight', 0)
+        saved = orig_wt - final_wt
+        pct = (saved / orig_wt * 100) if orig_wt > 0 else 0
+        
+        tex += r"""
+\section{IS 800 Discrete AI Optimization}
+\subsection{Optimization Metrics}
+\begin{itemize}
+    \item \textbf{Original Steel Weight:} """ + f"{orig_wt:.2f} kg" + r"""
+    \item \textbf{Optimized Steel Weight:} """ + f"{final_wt:.2f} kg" + r"""
+    \item \textbf{Material Saved:} """ + f"{saved:.2f} kg ({pct:.1f}\%)" + r"""
+\end{itemize}
+
+\subsection{Final IS 800 Assigned Sections}
+\begin{longtable}{cc}
+\toprule
+\textbf{Member ID} & \textbf{Optimized Section (SP 6)} \\
+\midrule
+\endhead
+"""
+        for m_id, sec in opt_data['sections'].items():
+            tex += f"M{m_id} & {sec} \\\\\n"
+            
+        tex += r"""\bottomrule
+\end{longtable}
+"""
+
+    tex += r"\end{document}"
+
+    # 5. Write to .tex file
+    # Replace backslashes in Windows paths if necessary, but writing raw text is safe
+    with open(tex_path, 'w', encoding='utf-8') as f:
+        f.write(tex)
+
+    # 6. Compile using pdflatex
+    # -interaction=nonstopmode ensures it doesn't freeze waiting for user input on minor warnings
+    try:
+        subprocess.run(['pdflatex', '-interaction=nonstopmode', 'report.tex'], cwd=temp_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        # Run twice for proper table alignment and referencing
+        subprocess.run(['pdflatex', '-interaction=nonstopmode', 'report.tex'], cwd=temp_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError("pdflatex compilation failed. Ensure TeX Live / MiKTeX is installed and in your system PATH.")
+
+    # 7. Read the generated PDF into memory
+    with open(pdf_path, 'rb') as f:
+        pdf_data = f.read()
+
+    return pdf_data
