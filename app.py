@@ -28,6 +28,11 @@ unit_map = {
 }
 current_scale, current_unit = unit_map[force_display]
 
+st.sidebar.markdown("---")
+if st.sidebar.button("🗑️ Clear Cache"):
+    st.cache_data.clear()
+    st.sidebar.success("Memory Cache Cleared!")
+
 fig = go.Figure()
 
 def clear_results():
@@ -37,6 +42,74 @@ def clear_results():
         del st.session_state['report_data']
     if 'optimized_sections' in st.session_state:
         del st.session_state['optimized_sections']
+
+# ---------------------------------------------------------
+# CACHED SOLVER ENGINE
+# ---------------------------------------------------------
+@st.cache_data(show_spinner=False)
+def run_structural_analysis(n_df, m_df, l_df, a_type, l_steps):
+    """
+    Cached wrapper for parsing dataframes and executing the matrix solver.
+    Re-runs ONLY if the input dataframes or solver settings change.
+    """
+    ts = TrussSystem()
+    node_map = {}
+    valid_node_count = 0
+    
+    # 1. Parse Nodes
+    for i, row in n_df.iterrows():
+        if pd.isna(row.get('X')) or pd.isna(row.get('Y')) or pd.isna(row.get('Z')): continue
+        valid_node_count += 1
+        rx = int(row.get('Restrain_X', 0)) if not pd.isna(row.get('Restrain_X')) else 0
+        ry = int(row.get('Restrain_Y', 0)) if not pd.isna(row.get('Restrain_Y')) else 0
+        rz = int(row.get('Restrain_Z', 0)) if not pd.isna(row.get('Restrain_Z')) else 0
+        
+        n = Node(valid_node_count, float(row['X']), float(row['Y']), float(row['Z']), rx, ry, rz)
+        n.user_id = i + 1 
+        ts.nodes.append(n)
+        node_map[i + 1] = n 
+        
+    # 2. Parse Members
+    for i, row in m_df.iterrows():
+        if pd.isna(row.get('Node_I')) or pd.isna(row.get('Node_J')): continue
+        ni_val, nj_val = int(row['Node_I']), int(row['Node_J'])
+        
+        if ni_val not in node_map or nj_val not in node_map:
+            raise ValueError(f"Member M{i+1} references an invalid Node ID.")
+            
+        E = float(row.get('E (N/sq.m)', 2e11)) if not pd.isna(row.get('E (N/sq.m)')) else 2e11
+        A = float(row.get('Area(sq.m)', 0.01)) if not pd.isna(row.get('Area(sq.m)')) else 0.01
+        ts.members.append(Member(i+1, node_map[ni_val], node_map[nj_val], E, A))
+        
+    # 3. Parse Loads
+    for i, row in l_df.iterrows():
+        if pd.isna(row.get('Node_ID')): continue
+        node_id_val = int(row['Node_ID'])
+        
+        if node_id_val not in node_map:
+            raise ValueError(f"Load at row {i+1} references an invalid Node ID.")
+            
+        target_node = node_map[node_id_val]
+        fx = float(row.get('Force_X (N)', 0)) if not pd.isna(row.get('Force_X (N)')) else 0.0
+        fy = float(row.get('Force_Y (N)', 0)) if not pd.isna(row.get('Force_Y (N)')) else 0.0
+        fz = float(row.get('Force_Z (N)', 0)) if not pd.isna(row.get('Force_Z (N)')) else 0.0
+        
+        dof_x, dof_y, dof_z = target_node.dofs[0], target_node.dofs[1], target_node.dofs[2]
+        
+        ts.loads[dof_x] = ts.loads.get(dof_x, 0.0) + fx
+        ts.loads[dof_y] = ts.loads.get(dof_y, 0.0) + fy
+        ts.loads[dof_z] = ts.loads.get(dof_z, 0.0) + fz
+    
+    if not ts.nodes or not ts.members:
+        raise ValueError("Incomplete model: Please define at least two valid nodes and one member.")
+        
+    # 4. Solve
+    if a_type == "Linear Elastic (Standard)":
+        ts.solve()
+    else:
+        ts.solve_nonlinear(load_steps=l_steps)
+            
+    return ts
 
 # Initialize dynamic grouping text box state
 if 'group_input_val' not in st.session_state:
@@ -206,63 +279,12 @@ with col1:
     
     if st.button("Calculate Results"):
         try:
-            ts = TrussSystem()
-            node_map = {}
-            valid_node_count = 0
-            
-            # 1. Parse Nodes
-            for i, row in node_df.iterrows():
-                if pd.isna(row.get('X')) or pd.isna(row.get('Y')) or pd.isna(row.get('Z')): continue
-                valid_node_count += 1
-                rx = int(row.get('Restrain_X', 0)) if not pd.isna(row.get('Restrain_X')) else 0
-                ry = int(row.get('Restrain_Y', 0)) if not pd.isna(row.get('Restrain_Y')) else 0
-                rz = int(row.get('Restrain_Z', 0)) if not pd.isna(row.get('Restrain_Z')) else 0
-                
-                n = Node(valid_node_count, float(row['X']), float(row['Y']), float(row['Z']), rx, ry, rz)
-                n.user_id = i + 1 
-                ts.nodes.append(n)
-                node_map[i + 1] = n 
-                
-            # 2. Parse Members
-            for i, row in member_df.iterrows():
-                if pd.isna(row.get('Node_I')) or pd.isna(row.get('Node_J')): continue
-                ni_val, nj_val = int(row['Node_I']), int(row['Node_J'])
-                
-                if ni_val not in node_map or nj_val not in node_map:
-                    raise ValueError(f"Member M{i+1} references an invalid Node ID.")
-                    
-                E = float(row.get('E (N/sq.m)', 2e11)) if not pd.isna(row.get('E (N/sq.m)')) else 2e11
-                A = float(row.get('Area(sq.m)', 0.01)) if not pd.isna(row.get('Area(sq.m)')) else 0.01
-                ts.members.append(Member(i+1, node_map[ni_val], node_map[nj_val], E, A))
-                
-            # 3. Parse Loads
-            for i, row in load_df.iterrows():
-                if pd.isna(row.get('Node_ID')): continue
-                node_id_val = int(row['Node_ID'])
-                
-                if node_id_val not in node_map:
-                    raise ValueError(f"Load at row {i+1} references an invalid Node ID.")
-                    
-                target_node = node_map[node_id_val]
-                fx = float(row.get('Force_X (N)', 0)) if not pd.isna(row.get('Force_X (N)')) else 0.0
-                fy = float(row.get('Force_Y (N)', 0)) if not pd.isna(row.get('Force_Y (N)')) else 0.0
-                fz = float(row.get('Force_Z (N)', 0)) if not pd.isna(row.get('Force_Z (N)')) else 0.0
-                
-                dof_x, dof_y, dof_z = target_node.dofs[0], target_node.dofs[1], target_node.dofs[2]
-                
-                ts.loads[dof_x] = ts.loads.get(dof_x, 0.0) + fx
-                ts.loads[dof_y] = ts.loads.get(dof_y, 0.0) + fy
-                ts.loads[dof_z] = ts.loads.get(dof_z, 0.0) + fz
-            
-            if not ts.nodes or not ts.members:
-                raise ValueError("Incomplete model: Please define at least two valid nodes and one member.")
-                
-            # --- CHOOSE SOLVER BASED ON UI TOGGLE ---
-            if analysis_type == "Linear Elastic (Standard)":
-                ts.solve()
-            else:
+            if analysis_type == "Non-Linear (Geometric P-Δ)":
                 with st.spinner(f"Running Non-Linear Newton-Raphson across {load_steps} increments..."):
-                    ts.solve_nonlinear(load_steps=load_steps)
+                    ts = run_structural_analysis(node_df, member_df, load_df, analysis_type, load_steps)
+            else:
+                with st.spinner("Assembling and Inverting Global Matrix..."):
+                    ts = run_structural_analysis(node_df, member_df, load_df, analysis_type, load_steps)
                     
             st.session_state['solved_truss'] = ts
             st.success(f"Analysis Complete using {analysis_type}!")
