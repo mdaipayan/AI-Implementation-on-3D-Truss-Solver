@@ -1,7 +1,7 @@
 import pandas as pd
-from functools import lru_cache
+import streamlit as st
 
-@lru_cache(maxsize=1)
+@st.cache_data
 def get_isa_catalog():
     """
     Returns a Pandas DataFrame containing standard Indian Standard Equal Angles (ISA)
