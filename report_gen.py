@@ -146,5 +146,5 @@ def generate_pdf_report(ts_solved, opt_data=None, fig_base=None, fig_res=None, s
             pdf.cell(col_widths[1], 8, sec, border=1, align='C')
             pdf.ln()
 
-    # Output to raw bytes for Streamlit download
+    # FIX: Output to raw bytes for Streamlit download (un-indented)
     return bytes(pdf.output())
