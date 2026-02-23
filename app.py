@@ -393,6 +393,7 @@ with col1:
             clear_results()
             st.success("Model updated! Scroll up and click 'Calculate Results' to view the new force distribution.")
             st.rerun()
+
     # ---------------------------------------------------------
     # NEW SECTION: PROFESSIONAL PDF REPORT GENERATION
     # ---------------------------------------------------------
@@ -450,6 +451,7 @@ with col1:
                     )
                 except Exception as e:
                     st.error(f"Failed to generate PDF: {e}")
+
 with col2:
     st.header("2. 3D Model Visualization")
     tab1, tab2 = st.tabs(["🏗️ Undeformed Geometry", "📊 Structural Forces (Results)"])
