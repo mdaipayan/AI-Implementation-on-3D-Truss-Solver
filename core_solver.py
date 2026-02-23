@@ -28,7 +28,7 @@ class Member:
         self.node_j = node_j
         self.E = E
         self.A = A
-        self.r_min = r_min  # NEW: Minimum radius of gyration (meters)
+        self.r_min = r_min  # Minimum radius of gyration (meters)
         self.internal_force = 0.0
         
         # 1. 3D Kinematics (Length)
@@ -36,6 +36,7 @@ class Member:
         dy = self.node_j.y - self.node_i.y
         dz = self.node_j.z - self.node_i.z
         self.L = np.sqrt(dx**2 + dy**2 + dz**2)
+        self.L_current = self.L # Initialize current length
         
         if self.L == 0:
             raise ValueError(f"Member {self.id} has zero length.")
@@ -63,7 +64,7 @@ class Member:
             [-self.l*self.n, -self.m*self.n, 1 - self.n**2]
         ])
         
-        KG_sub = (current_force / self.L) * Z
+        KG_sub = (current_force / self.L_current) * Z
         
         KG = np.zeros((6, 6))
         KG[0:3, 0:3] = KG_sub
@@ -81,7 +82,7 @@ class Member:
 
     def get_is800_buckling_stress(self, fy=250e6):
         """
-        NEW: Calculates allowable compressive design stress (fcd) per IS 800:2007.
+        Calculates allowable compressive design stress (fcd) per IS 800:2007.
         Assumes Buckling Class 'c' (alpha = 0.49) for standard Angle Sections.
         """
         if self.r_min <= 0:
@@ -225,7 +226,7 @@ class TrussSystem:
                     m.l, m.m, m.n = dx/m.L_current, dy/m.L_current, dz/m.L_current
                     m.T_vector = np.array([-m.l, -m.m, -m.n, m.l, m.m, m.n])
                     
-                    # Recalculate K_E and K_G
+                    # Recalculate K_E and K_G using current length
                     KE = (m.E * m.A / m.L) * np.outer(m.T_vector, m.T_vector) 
                     KG = m.get_k_geometric(member_forces[m.id])
                     K_element = KE + KG
@@ -235,9 +236,12 @@ class TrussSystem:
                         for j in range(6):
                             K_T[m.dofs[i], m.dofs[j]] += K_element[i, j]
                             
-                    # Calculate internal forces to find residual
+                    # Calculate internal forces using exact physical stretch
                     m.u_local = np.array([self.U_global[dof] for dof in m.dofs])
-                    force = (m.E * m.A / m.L) * np.dot(m.T_vector, m.u_local)
+                    
+                    # True stretch formulation for large displacements
+                    force = (m.E * m.A / m.L) * (m.L_current - m.L) 
+                    
                     member_forces[m.id] = force
                     
                     # Map element internal forces to global internal force vector
