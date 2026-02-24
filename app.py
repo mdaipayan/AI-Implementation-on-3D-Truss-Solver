@@ -8,6 +8,7 @@ from is_catalog import get_isa_catalog
 import datetime
 import os
 from visualizer import draw_undeformed_geometry, draw_results_fbd
+import json
 
 st.set_page_config(page_title="Professional Truss Suite (3D)", layout="wide")
 st.title("🏗️ Professional Space Truss Analysis Developed by D Mandal")
@@ -32,7 +33,52 @@ st.sidebar.markdown("---")
 if st.sidebar.button("🗑️ Clear Cache"):
     st.cache_data.clear()
     st.sidebar.success("Memory Cache Cleared!")
+# ---------------------------------------------------------
+# SAVE / LOAD PROJECT (JSON)
+# ---------------------------------------------------------
+st.sidebar.markdown("---")
+st.sidebar.subheader("💾 Project Management")
 
+# 1. Export Data Logic
+def export_project():
+    project_data = {
+        "nodes": st.session_state['nodes_data'].to_dict(orient='records'),
+        "members": st.session_state['members_data'].to_dict(orient='records'),
+        "loads": st.session_state['loads_data'].to_dict(orient='records'),
+        "combos": st.session_state['combos_data'].to_dict(orient='records'),
+        "groups": st.session_state.get('group_input_val', "")
+    }
+    return json.dumps(project_data, indent=4)
+
+st.sidebar.download_button(
+    label="⬇️ Save Project (.json)",
+    data=export_project(),
+    file_name=f"Truss_Project_{datetime.date.today().strftime('%Y%m%d')}.json",
+    mime="application/json"
+)
+
+# 2. Import Data Logic
+uploaded_file = st.sidebar.file_uploader("⬆️ Load Project (.json)", type=["json"])
+if uploaded_file is not None:
+    try:
+        project_data = json.load(uploaded_file)
+        
+        # Overwrite session state with uploaded data
+        st.session_state['nodes_data'] = pd.DataFrame(project_data['nodes'])
+        st.session_state['members_data'] = pd.DataFrame(project_data['members'])
+        st.session_state['loads_data'] = pd.DataFrame(project_data['loads'])
+        st.session_state['combos_data'] = pd.DataFrame(project_data['combos'])
+        st.session_state['group_input_val'] = project_data.get('groups', "")
+        
+        clear_results() # Wipe any old analysis from memory
+        st.sidebar.success("Project Loaded Successfully!")
+        
+        # Give the user a button to refresh the UI with the new data
+        if st.sidebar.button("🔄 Refresh UI to View Loaded Data"):
+            st.rerun()
+            
+    except Exception as e:
+        st.sidebar.error(f"Error parsing file: {e}")
 fig = go.Figure()
 
 def clear_results():
@@ -361,8 +407,12 @@ with col1:
                     base_ts = st.session_state['solved_truss']
                     
                     try:
+                        # Fetch the dictionary of all solved combinations
+                        solved_combos_dict = st.session_state['solved_combos']
                         optimizer = TrussOptimizer(
-                            base_truss=base_ts, 
+                            base_combos=list(solved_combos_dict.values()), 
+                            is_nonlinear=(analysis_type == "Non-Linear (Geometric P-Δ)"),
+                            load_steps=load_steps,
                             member_groups=parsed_groups,
                             yield_stress=yield_stress_mpa * 1e6, 
                             max_deflection=max_deflection_mm / 1000.0 
