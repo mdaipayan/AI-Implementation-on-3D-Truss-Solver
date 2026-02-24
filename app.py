@@ -88,6 +88,8 @@ st.sidebar.download_button(
 uploaded_file = st.sidebar.file_uploader("⬆️ Load Project (.json)", type=["json"])
 if uploaded_file is not None:
     try:
+        # FIX: Reset the file buffer cursor to the beginning before reading
+        uploaded_file.seek(0)
         project_data = json.load(uploaded_file)
         
         st.session_state['nodes_data'] = pd.DataFrame(project_data['nodes'])
@@ -378,7 +380,8 @@ with col1:
     st.markdown("**Symmetry & Constructability (Member Grouping)**")
     st.caption("Enter comma-separated Member IDs to group them into identical sections. Separate groups with a semicolon (;).")
     
-    grouping_input = st.text_input("Member Groups", value=st.session_state.get('group_input_val', "1"), key="group_input_val", on_change=clear_results)
+    # FIX: Removed the `value=` argument to prevent Streamlit widget key collision
+    grouping_input = st.text_input("Member Groups", key="group_input_val", on_change=clear_results)
         
     if st.button("🚀 Run Discrete AI Optimization"):
         if 'solved_truss' not in st.session_state:
