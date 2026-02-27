@@ -15,7 +15,7 @@ def get_isa_catalog():
     
     catalog_data = [
         # ["Designation", Area(cm2), r_min(cm), Weight(kg/m)]
-       [
+    
     ["ISA 20x20x3", 1.12, 0.38, 0.9],
     ["ISA 25x25x3", 1.41, 0.48, 1.1],
     ["ISA 30x30x3", 1.73, 0.58, 1.4],
@@ -67,7 +67,7 @@ def get_isa_catalog():
     ["ISA 200x200x12", 46.61, 3.93, 36.6],
     ["ISA 200x200x15", 57.80, 3.91, 45.4],
     ["ISA 200x200x25", 93.80, 3.85, 73.6]
-]
+
     ]
     
     df = pd.DataFrame(catalog_data, columns=["Designation", "Area_cm2", "r_min_cm", "Weight_kg_m"])
